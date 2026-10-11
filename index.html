@@ -371,8 +371,15 @@
 
         function dbError(err) {
             console.error('Firebase error:', err);
-            setStatus(false, 'تعذر الاتصال بقاعدة البيانات');
+            const code = err && (err.code || err.message) ? String(err.code || err.message) : '';
+            setStatus(false, 'تعذر الاتصال بقاعدة البيانات' + (code ? ' (' + code + ')' : ''));
         }
+
+        let isConnected = false;
+        // لو بعد 10 ثواني لسه مفيش اتصال، غالبًا الـ databaseURL غلط أو القاعدة مش متعملة
+        setTimeout(() => {
+            if (!isConnected) setStatus(false, 'مفيش اتصال بالقاعدة، راجع databaseURL');
+        }, 10000);
 
         // أول مرة فقط: لو القاعدة فاضية، ارفع البيانات الموجودة على الجهاز (أو البيانات الافتراضية)
         async function seedIfEmpty() {
@@ -401,7 +408,8 @@
 
         function startListeners() {
             onValue(ref(db, '.info/connected'), snap => {
-                setStatus(snap.val() === true, snap.val() === true ? 'متصلين في نفس المكان' : 'غير متصل… بنحاول نرجع');
+                isConnected = snap.val() === true;
+                setStatus(isConnected, isConnected ? 'متصلين في نفس المكان' : 'غير متصل… بنحاول نرجع');
             });
 
             onValue(R.groceries, snap => {
