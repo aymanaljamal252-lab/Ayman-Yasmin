@@ -154,7 +154,7 @@
                             <button type="button" onclick="selectCategory('بقالة')" class="cat-pill bg-orange-100 text-talabat-primary border border-orange-200 px-2.5 py-1 rounded-full font-semibold whitespace-nowrap">🛒 بقالة</button>
                             <button type="button" onclick="selectCategory('خضار وفواكه')" class="cat-pill bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-semibold whitespace-nowrap">🥦 خضار وفواكه</button>
                             <button type="button" onclick="selectCategory('مخبوزات')" class="cat-pill bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-semibold whitespace-nowrap">🥐 مخبوزات</button>
-                            <button type="button" onclick="selectCategory('لحوم وداوجن')" class="cat-pill bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-semibold whitespace-nowrap">🥩 لحوم</button>
+                            <button type="button" onclick="selectCategory('لحوم')" class="cat-pill bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-semibold whitespace-nowrap">🥩 لحوم</button>
                             <button type="button" onclick="selectCategory('منظفات')" class="cat-pill bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-semibold whitespace-nowrap">🧼 منظفات</button>
                         </div>
                         <input type="hidden" id="selectedCat" value="بقالة">
@@ -303,10 +303,6 @@
     </div>
 
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-        import { getDatabase, ref, set, update, remove, push, onValue, get, query, limitToLast }
-            from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
-
         /* FIREBASE CONFIG */
         const firebaseConfig = {
             apiKey: "AIzaSyBSRy0mZbtRn2smHBaZIo6IIGNnGBCo4js",
@@ -320,16 +316,28 @@
             measurementId: "G-4HY893R93C"
         };
 
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
+        /* مصادر تحميل Firebase (لو الأول اتحجب بيجرب التاني) */
+        const FIREBASE_SOURCES = [
+            ['https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js', 'https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js'],
+            ['https://cdn.jsdelivr.net/npm/firebase@10.14.1/app/+esm', 'https://cdn.jsdelivr.net/npm/firebase@10.14.1/database/+esm']
+        ];
 
-        const R = {
-            groceries: ref(db, 'hub/groceries'),
-            meals: ref(db, 'hub/meals'),
-            library: ref(db, 'hub/library'),
-            notifications: ref(db, 'hub/notifications'),
-            seeded: ref(db, 'hub/meta/seeded')
-        };
+        let fb = null;   // موديولات Firebase بعد التحميل (null = شغال على الجهاز بس)
+        let db = null;
+
+        const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+
+        async function loadFirebaseModules() {
+            for (const [appUrl, dbUrl] of FIREBASE_SOURCES) {
+                try {
+                    const [a, d] = await withTimeout(Promise.all([import(appUrl), import(dbUrl)]), 12000);
+                    return { ...a, ...d };
+                } catch (e) {
+                    console.warn('Firebase load failed from', appUrl, e);
+                }
+            }
+            return null;
+        }
 
         /* HELPERS */
         const esc = s => String(s).replace(/[&<>"']/g, c => ({
@@ -338,15 +346,14 @@
 
         const nowTime = () => new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
 
-        /* APP STATE (المستخدم والإشعارات محليين على كل جهاز، والباقي متزامن عبر Firebase) */
-        let currentUser = localStorage.getItem('hub_user') || 'أيمن';
-        let notificationsEnabled = localStorage.getItem('hub_notify') === 'true';
+        const fromLocal = (key, fallback) => {
+            try {
+                const v = JSON.parse(localStorage.getItem(key));
+                return v === null || v === undefined ? fallback : v;
+            } catch (e) { return fallback; }
+        };
 
-        let savedLibrary = [];     // [{ key, name }]
-        let groceryList = [];
-        let mealList = [];
-        let notificationsLog = [];
-
+        /* DEFAULT DATA */
         const DEFAULT_LIBRARY = ['حليب طازج', 'بيض بلدي', 'خبز بلدي', 'جبنة بيضاء', 'طماطم', 'خيار', 'زيت زيتون', 'أرز مصري', 'دجاج طازج'];
         const DEFAULT_GROCERIES = [
             { id: 1, name: 'حليب كامل الدسم', category: 'بقالة', bought: false, addedBy: 'ياسمين', time: '10:00 ص' },
@@ -360,7 +367,28 @@
             { id: 4, name: 'كفتة مشوية وسلطة', votesAyman: true, votesYasmin: true, addedBy: 'أيمن' }
         ];
 
-        /* FIREBASE: SEED + LIVE LISTENERS */
+        const normalizeLibrary = arr => (arr || []).map((x, i) =>
+            typeof x === 'string' ? { key: 'L' + i + '_' + x.length, name: x } : x);
+
+        /* APP STATE: بيتحمل من الجهاز فورًا، وبعدين Firebase بيزامنه */
+        let currentUser = localStorage.getItem('hub_user') || 'أيمن';
+        let notificationsEnabled = localStorage.getItem('hub_notify') === 'true';
+
+        let savedLibrary = normalizeLibrary(fromLocal('hub_library', DEFAULT_LIBRARY));
+        let groceryList = fromLocal('hub_groceries', DEFAULT_GROCERIES);
+        let mealList = fromLocal('hub_meals', DEFAULT_MEALS).sort((a, b) => b.id - a.id);
+        let notificationsLog = fromLocal('hub_notifs', []);
+
+        function persistLocal() {
+            try {
+                localStorage.setItem('hub_library', JSON.stringify(savedLibrary));
+                localStorage.setItem('hub_groceries', JSON.stringify(groceryList));
+                localStorage.setItem('hub_meals', JSON.stringify(mealList));
+                localStorage.setItem('hub_notifs', JSON.stringify(notificationsLog));
+            } catch (e) { /* storage ممتلئ أو ممنوع */ }
+        }
+
+        /* STATUS + ERRORS */
         function setStatus(ok, text) {
             const dot = document.getElementById('connDot');
             const label = document.getElementById('connText');
@@ -369,81 +397,156 @@
             label.innerText = text;
         }
 
+        function showToast(msg) {
+            let t = document.getElementById('hubToast');
+            if (!t) {
+                t = document.createElement('div');
+                t.id = 'hubToast';
+                t.style.cssText = 'position:fixed;bottom:84px;left:50%;transform:translateX(-50%);max-width:92%;background:#1f2937;color:#fff;padding:10px 14px;border-radius:12px;font-size:12px;z-index:9999;box-shadow:0 4px 14px rgba(0,0,0,.25);text-align:center';
+                document.body.appendChild(t);
+            }
+            t.innerText = msg;
+            t.style.display = 'block';
+            clearTimeout(t._h);
+            t._h = setTimeout(() => { t.style.display = 'none'; }, 7000);
+        }
+
         function dbError(err) {
             console.error('Firebase error:', err);
             const code = err && (err.code || err.message) ? String(err.code || err.message) : '';
             setStatus(false, 'تعذر الاتصال بقاعدة البيانات' + (code ? ' (' + code + ')' : ''));
+            const hint = /permission/i.test(code)
+                ? 'القواعد مش بتسمح بالكتابة. راجع Rules في Firebase واضغط Publish.'
+                : 'التغيير محفوظ على جهازك بس ومتزامنش.';
+            showToast('⚠️ ' + hint + (code ? ' [' + code + ']' : ''));
         }
 
-        let isConnected = false;
-        // لو بعد 10 ثواني لسه مفيش اتصال، غالبًا الـ databaseURL غلط أو القاعدة مش متعملة
-        setTimeout(() => {
-            if (!isConnected) setStatus(false, 'مفيش اتصال بالقاعدة، راجع databaseURL');
-        }, 10000);
+        /* WRITE HELPERS: لو Firebase مش متاح، العملية بتتحفظ في طابور وتتبعت لما يشتغل */
+        const getPending = () => fromLocal('hub_pending', []);
+        const setPending = arr => { try { localStorage.setItem('hub_pending', JSON.stringify(arr.slice(-300))); } catch (e) {} };
+        const queueOp = op => { const a = getPending(); a.push(op); setPending(a); };
 
-        // أول مرة فقط: لو القاعدة فاضية، ارفع البيانات الموجودة على الجهاز (أو البيانات الافتراضية)
-        async function seedIfEmpty() {
-            const snap = await get(R.seeded);
+        function dbSet(path, value) {
+            if (!fb) return queueOp({ op: 'set', path, value });
+            fb.set(fb.ref(db, path), value).catch(dbError);
+        }
+        function dbUpdate(path, value) {
+            if (!fb) return queueOp({ op: 'update', path, value });
+            fb.update(fb.ref(db, path), value).catch(dbError);
+        }
+        function dbRemove(path) {
+            if (!fb) return queueOp({ op: 'remove', path });
+            fb.remove(fb.ref(db, path)).catch(dbError);
+        }
+        function dbPush(path, value, queueIfOffline = true) {
+            if (!fb) {
+                const key = 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+                if (queueIfOffline) queueOp({ op: 'set', path: `${path}/${key}`, value });
+                return key;
+            }
+            const r = fb.push(fb.ref(db, path), value);
+            r.catch(dbError);
+            return r.key;
+        }
+
+        async function flushPending() {
+            const ops = getPending();
+            if (!ops.length) return;
+            setPending([]);
+            for (const o of ops) {
+                try {
+                    const r = fb.ref(db, o.path);
+                    if (o.op === 'set') fb.set(r, o.value).catch(dbError);
+                    else if (o.op === 'update') fb.update(r, o.value).catch(dbError);
+                    else if (o.op === 'remove') fb.remove(r).catch(dbError);
+                } catch (e) { dbError(e); }
+            }
+        }
+
+        /* FIREBASE: SEED + LIVE LISTENERS */
+        async function seedIfEmpty(seed) {
+            const snap = await fb.get(fb.ref(db, 'hub/meta/seeded'));
             if (snap.exists()) return;
 
-            const fromLocal = (key, fallback) => {
-                try { return JSON.parse(localStorage.getItem(key)) || fallback; }
-                catch (e) { return fallback; }
-            };
-
-            const lib = fromLocal('hub_library', DEFAULT_LIBRARY);
-            const groceries = fromLocal('hub_groceries', DEFAULT_GROCERIES);
-            const meals = fromLocal('hub_meals', DEFAULT_MEALS);
-
             const updates = { 'hub/meta/seeded': true };
-            lib.forEach(name => { updates[`hub/library/${push(R.library).key}`] = name; });
-            groceries.forEach(g => { updates[`hub/groceries/${g.id}`] = g; });
-            meals.forEach(m => { updates[`hub/meals/${m.id}`] = m; });
+            seed.library.forEach(l => { updates[`hub/library/${fb.push(fb.ref(db, 'hub/library')).key}`] = l.name; });
+            seed.groceries.forEach(g => { updates[`hub/groceries/${g.id}`] = g; });
+            seed.meals.forEach(m => { updates[`hub/meals/${m.id}`] = m; });
 
-            await update(ref(db), updates);
+            await fb.update(fb.ref(db), updates);
         }
 
         let seenNotifKeys = new Set();
         let notifFirstLoad = true;
+        let isConnected = false;
 
         function startListeners() {
-            onValue(ref(db, '.info/connected'), snap => {
+            fb.onValue(fb.ref(db, '.info/connected'), snap => {
                 isConnected = snap.val() === true;
                 setStatus(isConnected, isConnected ? 'متصلين في نفس المكان' : 'غير متصل… بنحاول نرجع');
             });
 
-            onValue(R.groceries, snap => {
+            fb.onValue(fb.ref(db, 'hub/groceries'), snap => {
                 groceryList = Object.values(snap.val() || {});
                 renderGroceries();
             }, dbError);
 
-            onValue(R.meals, snap => {
+            fb.onValue(fb.ref(db, 'hub/meals'), snap => {
                 mealList = Object.values(snap.val() || {}).sort((a, b) => b.id - a.id);
                 renderMeals();
                 drawWheel();
             }, dbError);
 
-            onValue(R.library, snap => {
+            fb.onValue(fb.ref(db, 'hub/library'), snap => {
                 savedLibrary = Object.entries(snap.val() || {}).map(([key, name]) => ({ key, name }));
                 renderSavedLibrary();
             }, dbError);
 
-            onValue(query(R.notifications, limitToLast(50)), snap => {
+            fb.onValue(fb.query(fb.ref(db, 'hub/notifications'), fb.limitToLast(50)), snap => {
                 const entries = [];
                 snap.forEach(child => { entries.push({ key: child.key, ...child.val() }); });
 
                 entries.forEach(n => {
                     if (!seenNotifKeys.has(n.key)) {
                         seenNotifKeys.add(n.key);
-                        // إشعار المتصفح فقط لو الإشعار من الشخص التاني (مش أول تحميل)
                         if (!notifFirstLoad && n.user !== currentUser) showNativeNotification(n.text);
                     }
                 });
                 notifFirstLoad = false;
 
-                notificationsLog = entries.reverse(); // الأحدث في الأول
+                notificationsLog = entries.reverse();
                 renderNotifications();
             }, dbError);
+        }
+
+        async function connectFirebase() {
+            setStatus(false, 'جاري الاتصال…');
+            // نلقط بيانات الجهاز قبل ما أي listener يغيّرها (لاستخدامها في أول رفع)
+            const seed = { library: [...savedLibrary], groceries: [...groceryList], meals: [...mealList] };
+
+            const mods = await loadFirebaseModules();
+            if (!mods) {
+                setStatus(false, 'شغال على جهازك بس (Firebase مش متاح)');
+                showToast('⚠️ مقدرتش أحمّل Firebase (الشبكة أو المعاينة بتحجبه). الطلبات بتتحفظ على جهازك وهتتزامن لما يشتغل.');
+                return;
+            }
+
+            try {
+                fb = mods;
+                db = fb.getDatabase(fb.initializeApp(firebaseConfig));
+            } catch (e) {
+                fb = null;
+                dbError(e);
+                return;
+            }
+
+            flushPending();
+            startListeners();
+            seedIfEmpty(seed).catch(dbError);
+
+            setTimeout(() => {
+                if (!isConnected) setStatus(false, 'مفيش اتصال بالقاعدة، راجع databaseURL');
+            }, 10000);
         }
 
         function init() {
@@ -459,8 +562,7 @@
                 Notification.requestPermission();
             }
 
-            startListeners();
-            seedIfEmpty().catch(dbError);
+            connectFirebase();
         }
 
         /* LOCAL PREFS (per device) */
@@ -542,18 +644,16 @@
         function addGroceryItem(name, category = 'بقالة') {
             // حفظ الاسم في المكتبة لو جديد
             if (!savedLibrary.some(l => l.name === name)) {
-                push(R.library, name);
+                const key = dbPush('hub/library', name);
+                savedLibrary.push({ key, name });
+                renderSavedLibrary();
             }
 
             const id = Date.now();
-            set(ref(db, `hub/groceries/${id}`), {
-                id,
-                name,
-                category,
-                bought: false,
-                addedBy: currentUser,
-                time: nowTime()
-            }).catch(dbError);
+            const item = { id, name, category, bought: false, addedBy: currentUser, time: nowTime() };
+            groceryList.push(item);   // يظهر ويتحفظ فورًا
+            renderGroceries();
+            dbSet(`hub/groceries/${id}`, item);
 
             pushNotification(`قام ${currentUser} بإضافة "${name}" لمشتريات البيت 🛒`);
             triggerAudioTone(523.25, 0.1);
@@ -569,7 +669,9 @@
             if (!item) return;
 
             const updated = !item.bought;
-            update(ref(db, `hub/groceries/${id}`), { bought: updated }).catch(dbError);
+            item.bought = updated;
+            renderGroceries();
+            dbUpdate(`hub/groceries/${id}`, { bought: updated });
 
             if (updated) {
                 pushNotification(`قام ${currentUser} بـ شراء "${item.name}" ✅`);
@@ -578,11 +680,14 @@
         }
 
         function deleteGrocery(id) {
-            remove(ref(db, `hub/groceries/${id}`)).catch(dbError);
+            groceryList = groceryList.filter(i => i.id !== id);
+            renderGroceries();
+            dbRemove(`hub/groceries/${id}`);
         }
 
         /* RENDER SAVED LIBRARY BUTTONS */
         function renderSavedLibrary() {
+            persistLocal();
             const container = document.getElementById('savedLibraryContainer');
             document.getElementById('savedLibraryCount').innerText = `${savedLibrary.length} عنصر`;
 
@@ -595,6 +700,7 @@
 
         /* RENDER GROCERY LIST WITH SMART SORTING */
         function renderGroceries() {
+            persistLocal();
             const container = document.getElementById('groceryList');
 
             // غير المكتمل دايمًا في الأعلى
@@ -654,13 +760,17 @@
             if (!name) return;
 
             const id = Date.now();
-            set(ref(db, `hub/meals/${id}`), {
+            const meal = {
                 id,
                 name,
                 votesAyman: currentUser === 'أيمن',
                 votesYasmin: currentUser === 'ياسمين',
                 addedBy: currentUser
-            }).catch(dbError);
+            };
+            mealList.unshift(meal);
+            renderMeals();
+            drawWheel();
+            dbSet(`hub/meals/${id}`, meal);
 
             input.value = '';
             pushNotification(`اقترح ${currentUser} وجبة جديدة: "${name}" 🍽️`);
@@ -674,15 +784,21 @@
                 ? { votesAyman: !meal.votesAyman }
                 : { votesYasmin: !meal.votesYasmin };
 
-            update(ref(db, `hub/meals/${id}`), patch).catch(dbError);
+            Object.assign(meal, patch);
+            renderMeals();
+            dbUpdate(`hub/meals/${id}`, patch);
             triggerAudioTone(650, 0.08);
         }
 
         function deleteMeal(id) {
-            remove(ref(db, `hub/meals/${id}`)).catch(dbError);
+            mealList = mealList.filter(m => m.id !== id);
+            renderMeals();
+            drawWheel();
+            dbRemove(`hub/meals/${id}`);
         }
 
         function renderMeals() {
+            persistLocal();
             const container = document.getElementById('mealsContainer');
             document.getElementById('totalMealsCount').innerText = `${mealList.length} وجبة`;
 
@@ -949,7 +1065,11 @@
         }
 
         function pushNotification(text) {
-            push(R.notifications, { text, time: nowTime(), user: currentUser, ts: Date.now() }).catch(dbError);
+            const n = { text, time: nowTime(), user: currentUser, ts: Date.now() };
+            const key = dbPush('hub/notifications', n, false);
+            seenNotifKeys.add(key);
+            notificationsLog.unshift({ key, ...n });
+            renderNotifications();
         }
 
         function showNativeNotification(text) {
@@ -962,6 +1082,7 @@
         }
 
         function renderNotifications() {
+            persistLocal();
             const container = document.getElementById('notificationsList');
             const dot = document.getElementById('navNotifyDot');
 
@@ -982,7 +1103,9 @@
         }
 
         function clearNotifications() {
-            remove(R.notifications).catch(dbError);
+            notificationsLog = [];
+            renderNotifications();
+            if (fb) fb.remove(fb.ref(db, 'hub/notifications')).catch(dbError);
         }
 
         /* EXPOSE HANDLERS TO INLINE onclick/onsubmit (لأن السكريبت بقى module) */
