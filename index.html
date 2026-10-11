@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>بيت أيمن وياسمين - طلبات البيت والوجبات</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Cairo Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        talabat: {
+                            primary: '#FF5A00', // Signature Talabat Orange
+                            secondary: '#FF8A00',
+                            accent: '#FFC107',  // Warm Yellow
+                            bg: '#F8F9FA',
+                            dark: '#1F2937',
+                            lightBg: '#FFF5EF'
+                        }
+                    },
+                    fontFamily: {
+                        cairo: ['Cairo', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+            background-color: #F3F4F6;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+        
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #FF8A00;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #F1F1F1;
+        }
+
+        /* Confetti effect canvas */
+        #confetti-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        .shadow-talabat {
+            box-shadow: 0 4px 15px rgba(255, 90, 0, 0.08);
+        }
+        .shadow-card {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Wheel Pointer Animation */
+        @keyframes pulse-pointer {
+            0%, 100% { transform: scale(1) translateY(0); }
+            50% { transform: scale(1.1) translateY(-2px); }
+        }
+        .pointer-animate {
+            animation: pulse-pointer 1s infinite;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex justify-center items-center min-h-screen p-0 sm:p-4">
+
+    <!-- Confetti Overlay Canvas -->
+    <canvas id="confetti-canvas"></canvas>
+
+    <!-- App Container (Mobile Wrapper Screen) -->
+    <div class="w-full max-w-md bg-white min-h-screen sm:min-h-[840px] sm:max-h-[900px] sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden relative border-0 sm:border-4 border-gray-800">
+        
+        <!-- Header Bar -->
+        <header class="bg-talabat-primary text-white p-4 pt-5 rounded-b-2xl shadow-lg relative z-20">
+            <div class="flex justify-between items-center mb-2">
+                <div class="flex items-center space-x-2 space-x-reverse">
+                    <div class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-xl font-bold">
+                        <i class="fa-solid font-bold fa-house text-white"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg font-extrabold leading-tight">بيت أيمن وياسمين</h1>
+                        <p class="text-xs text-orange-100 flex items-center gap-1">
+                            <span id="connDot" class="inline-block w-2 h-2 rounded-full bg-yellow-300 animate-pulse"></span>
+                            <span id="connText">جاري الاتصال…</span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Notification Toggle Button -->
+                <button id="notifyBtn" onclick="toggleNotifications()" class="w-9 h-9 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition relative">
+                    <i id="notifyIcon" class="fa-solid fa-bell"></i>
+                    <span id="notifyBadge" class="hidden absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>
+                </button>
+            </div>
+
+            <!-- Active Profile Switcher -->
+            <div class="mt-3 bg-black/15 p-1.5 rounded-xl flex items-center justify-between text-xs font-bold">
+                <span class="text-white/80 pr-2">أنت تسجل كـ:</span>
+                <div class="flex bg-white/20 p-0.5 rounded-lg space-x-1 space-x-reverse">
+                    <button onclick="switchUser('أيمن')" id="userBtnAyman" class="px-3 py-1 rounded-md transition flex items-center gap-1">
+                        👨‍💼 أيمن
+                    </button>
+                    <button onclick="switchUser('ياسمين')" id="userBtnYasmin" class="px-3 py-1 rounded-md transition flex items-center gap-1">
+                        👩‍🍳 ياسمين
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 overflow-y-auto p-4 pb-24 bg-talabat-bg relative" id="mainContent">
+            
+            <!-- SECTION 1: GROCERY REQUESTS (طلبات البيت) -->
+            <section id="secGrocery" class="tab-content space-y-4">
+                
+                <!-- Add New Grocery Item Form -->
+                <div class="bg-white p-4 rounded-2xl shadow-card border border-orange-100">
+                    <h2 class="text-sm font-bold text-gray-800 mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-plus-circle text-talabat-primary"></i> إضافة طلب جديد للمنزل
+                    </h2>
+                    <form id="groceryForm" onsubmit="handleAddGrocery(event)" class="space-y-3">
+                        <div class="flex gap-2">
+                            <input type="text" id="groceryName" placeholder="مثال: طماطم، حليب، أرز..." required
+                                   class="flex-1 bg-gray-50 border border-gray-200 text-sm rounded-xl p-2.5 focus:outline-none focus:border-talabat-primary transition">
+                            <button type="submit" class="bg-talabat-primary hover:bg-orange-600 text-white px-4 rounded-xl text-sm font-bold shadow-md transition flex items-center gap-1">
+                                <span>إضافة</span>
+                                <i class="fa-solid fa-paper-plane text-xs"></i>
+                            </button>
+                        </div>
+                        
+                        <!-- Quick Category Tag Pills -->
+                        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                            <span class="text-gray-400 text-[11px] whitespace-nowrap">التصنيف:</span>
+                            <button type="button" onclick="selectCategory('بقالة')" class="cat-pill bg-orange-100 text-talabat-primary border border-orange-200 px-2.5 py-1 rounded-full font-semibold whitespace-nowrap">🛒 بقالة</button>
+                            <button type="button" onclick="selectCategory('خضار وفواكه')" class="cat-pill bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-semibold whitespace-nowrap">🥦 خضار وفواكه</button>
+                            <button type="button" onclick="selectCategory('مخبوزات')" class="cat-pill bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-semibold whitespace-nowrap">🥐 مخبوزات</button>
+                            <button type="button" onclick="selectCategory('لحوم وداوجن')" class="cat-pill bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-semibold whitespace-nowrap">🥩 لحوم</button>
+                            <button type="button" onclick="selectCategory('منظفات')" class="cat-pill bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-semibold whitespace-nowrap">🧼 منظفات</button>
+                        </div>
+                        <input type="hidden" id="selectedCat" value="بقالة">
+                    </form>
+                </div>
+
+                <!-- Saved Quick Library (قائمة الأغراض المسبقة) -->
+                <div class="bg-gradient-to-r from-amber-50 to-orange-50 p-3 rounded-2xl border border-amber-200/60 shadow-sm">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                            <i class="fa-solid fa-bolt text-talabat-accent"></i> الأغراض المحفوظة (بنقرة واحدة)
+                        </span>
+                        <span class="text-[10px] bg-amber-200/60 text-amber-800 px-2 py-0.5 rounded-full font-bold" id="savedLibraryCount">0 عنصر</span>
+                    </div>
+                    <div id="savedLibraryContainer" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                        <!-- Dynamic Tags inserted here -->
+                    </div>
+                </div>
+
+                <!-- Active Grocery List Header & Filter -->
+                <div class="flex justify-between items-center pt-2">
+                    <h3 class="font-extrabold text-gray-800 text-base flex items-center gap-2">
+                        <span>طلبات البيت الحالية</span>
+                        <span id="activeCountBadge" class="bg-talabat-primary text-white text-xs px-2 py-0.5 rounded-full font-bold">0</span>
+                    </h3>
+                    <span class="text-[11px] text-gray-500 font-medium">غير المكتملة في الأعلى ⬆️</span>
+                </div>
+
+                <!-- Grocery Items List Container -->
+                <div id="groceryList" class="space-y-2.5">
+                    <!-- Dynamic Grocery Cards -->
+                </div>
+            </section>
+
+            <!-- SECTION 2: MEALS SCHEDULE & VOTING (جدول الوجبات والتصويت) -->
+            <section id="secMeals" class="tab-content hidden space-y-4">
+                
+                <!-- Add Meal Proposal Form -->
+                <div class="bg-white p-4 rounded-2xl shadow-card border border-orange-100">
+                    <h2 class="text-sm font-bold text-gray-800 mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-utensils text-talabat-primary"></i> اقتراح وجبة جديدة
+                    </h2>
+                    <form id="mealForm" onsubmit="handleAddMeal(event)" class="flex gap-2">
+                        <input type="text" id="mealTitle" placeholder="اسم الوجبة (مثل: مكرونة بشاميل، ملوخية...)" required
+                               class="flex-1 bg-gray-50 border border-gray-200 text-sm rounded-xl p-2.5 focus:outline-none focus:border-talabat-primary">
+                        <button type="submit" class="bg-talabat-primary hover:bg-orange-600 text-white px-4 rounded-xl text-sm font-bold shadow-md transition">
+                            اقتراح
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Meals Schedule List -->
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center">
+                        <h3 class="font-bold text-gray-800 text-sm">قائمة المقترحات والتصويت</h3>
+                        <span class="text-xs text-orange-600 font-bold" id="totalMealsCount">0 وجبات</span>
+                    </div>
+
+                    <div id="mealsContainer" class="space-y-2.5">
+                        <!-- Dynamic Meal Cards -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION 3: DECISION WHEEL (عجلة اقتراح الوجبات) -->
+            <section id="secWheel" class="tab-content hidden space-y-4 text-center">
+                <div class="bg-white p-5 rounded-3xl shadow-card border border-orange-100 flex flex-col items-center">
+                    <div class="mb-3">
+                        <h2 class="text-lg font-black text-gray-800">عجلة الحظ: هنطبخ ايه النهاردة؟ 🎲</h2>
+                        <p class="text-xs text-gray-500 mt-1">تختار بشكل عشوائي من الوجبات المضافة في جدول المقترحات</p>
+                    </div>
+
+                    <!-- Interactive HTML5 Canvas Wheel -->
+                    <div class="relative my-4 flex justify-center items-center">
+                        <!-- Pointer Arrow -->
+                        <div class="absolute -top-3 z-30 pointer-animate">
+                            <i class="fa-solid fa-caret-down text-4xl text-talabat-primary drop-shadow-md"></i>
+                        </div>
+
+                        <!-- Canvas Element -->
+                        <canvas id="wheelCanvas" width="300" height="300" class="rounded-full shadow-lg border-4 border-orange-200 max-w-full h-auto"></canvas>
+                    </div>
+
+                    <!-- Spin Button -->
+                    <button id="spinBtn" onclick="spinWheel()" 
+                            class="w-full py-3.5 bg-gradient-to-r from-talabat-primary to-orange-500 hover:from-orange-600 hover:to-talabat-primary text-white font-extrabold text-base rounded-2xl shadow-lg transition transform active:scale-95 flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-arrows-spin text-lg animate-spin" style="animation-duration: 3s;"></i>
+                        <span>لف العجلة واختار لنا!</span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- SECTION 4: NOTIFICATIONS HISTORY (سجل التنبيهات) -->
+            <section id="secNotifications" class="tab-content hidden space-y-3">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="font-extrabold text-gray-800 text-base">تنبيهات البيت المحاكاة</h3>
+                    <button onclick="clearNotifications()" class="text-xs text-red-500 hover:underline">مسح الكل</button>
+                </div>
+                <div id="notificationsList" class="space-y-2">
+                    <!-- Dynamic Notification Log -->
+                </div>
+            </section>
+
+        </main>
+
+        <!-- Winner Meal Winner Modal Dialog -->
+        <div id="winnerModal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
+            <div class="bg-white w-full max-w-xs rounded-3xl p-6 text-center shadow-2xl transform scale-95 transition-all border-4 border-talabat-accent relative">
+                <div class="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3 text-3xl">
+                    🍲
+                </div>
+                <span class="text-xs font-bold text-orange-500 bg-orange-50 px-3 py-1 rounded-full uppercase tracking-wider">وجبة اليوم المختارة</span>
+                <h3 id="winnerTitle" class="text-2xl font-black text-gray-800 my-3">اسم الوجبة</h3>
+                <p class="text-xs text-gray-500 mb-5">تم الاختيار بنجاح بواسطة عجلة الحظ! بالهناء والشفاء ❤️</p>
+                
+                <button onclick="closeWinnerModal()" class="w-full py-2.5 bg-talabat-primary text-white font-bold rounded-xl shadow-md hover:bg-orange-600 transition">
+                    تم، ممتاز!
+                </button>
+            </div>
+        </div>
+
+        <!-- Bottom Navigation Bar (Talabat Mobile App Style) -->
+        <nav class="bg-white border-t border-gray-100 px-2 py-2 flex justify-around items-center absolute bottom-0 inset-x-0 z-20 shadow-lg">
+            <button onclick="switchTab('secGrocery')" id="tabBtnGrocery" class="tab-btn flex-1 flex flex-col items-center py-1 text-talabat-primary font-bold transition">
+                <i class="fa-solid fa-basket-shopping text-lg"></i>
+                <span class="text-[11px] mt-1">طلبات البيت</span>
+            </button>
+            
+            <button onclick="switchTab('secMeals')" id="tabBtnMeals" class="tab-btn flex-1 flex flex-col items-center py-1 text-gray-400 hover:text-talabat-primary font-bold transition">
+                <i class="fa-solid fa-utensils text-lg"></i>
+                <span class="text-[11px] mt-1">جدول الوجبات</span>
+            </button>
+            
+            <button onclick="switchTab('secWheel')" id="tabBtnWheel" class="tab-btn flex-1 flex flex-col items-center py-1 text-gray-400 hover:text-talabat-primary font-bold transition">
+                <i class="fa-solid fa-arrows-spin text-lg"></i>
+                <span class="text-[11px] mt-1">عجلة الحظ</span>
+            </button>
+            
+            <button onclick="switchTab('secNotifications')" id="tabBtnNotifications" class="tab-btn flex-1 flex flex-col items-center py-1 text-gray-400 hover:text-talabat-primary font-bold transition relative">
+                <i class="fa-solid fa-bell text-lg"></i>
+                <span class="text-[11px] mt-1">الإشعارات</span>
+                <span id="navNotifyDot" class="hidden absolute top-1 right-5 w-2 h-2 bg-red-500 rounded-full"></span>
+            </button>
+        </nav>
+
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+        import { getDatabase, ref, set, update, remove, push, onValue, get, query, limitToLast }
+            from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+
+        /* FIREBASE CONFIG */
+        const firebaseConfig = {
+            apiKey: "AIzaSyBSRy0mZbtRn2smHBaZIo6IIGNnGBCo4js",
+            authDomain: "ayman-yasmin.firebaseapp.com",
+            // انسخ الرابط الصحيح من: Firebase Console > Realtime Database (أعلى صفحة البيانات)
+            databaseURL: "https://ayman-yasmin-default-rtdb.firebaseio.com",
+            projectId: "ayman-yasmin",
+            storageBucket: "ayman-yasmin.firebasestorage.app",
+            messagingSenderId: "529701806587",
+            appId: "1:529701806587:web:945d0fade3a8197815ab5e",
+            measurementId: "G-4HY893R93C"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        const R = {
+            groceries: ref(db, 'hub/groceries'),
+            meals: ref(db, 'hub/meals'),
+            library: ref(db, 'hub/library'),
+            notifications: ref(db, 'hub/notifications'),
+            seeded: ref(db, 'hub/meta/seeded')
+        };
+
+        /* HELPERS */
+        const esc = s => String(s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+
+        const nowTime = () => new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+
+        /* APP STATE (المستخدم والإشعارات محليين على كل جهاز، والباقي متزامن عبر Firebase) */
+        let currentUser = localStorage.getItem('hub_user') || 'أيمن';
+        let notificationsEnabled = localStorage.getItem('hub_notify') === 'true';
+
+        let savedLibrary = [];     // [{ key, name }]
+        let groceryList = [];
+        let mealList = [];
+        let notificationsLog = [];
+
+        const DEFAULT_LIBRARY = ['حليب طازج', 'بيض بلدي', 'خبز بلدي', 'جبنة بيضاء', 'طماطم', 'خيار', 'زيت زيتون', 'أرز مصري', 'دجاج طازج'];
+        const DEFAULT_GROCERIES = [
+            { id: 1, name: 'حليب كامل الدسم', category: 'بقالة', bought: false, addedBy: 'ياسمين', time: '10:00 ص' },
+            { id: 2, name: 'طماطم سلطة', category: 'خضار وفواكه', bought: false, addedBy: 'أيمن', time: '10:15 ص' },
+            { id: 3, name: 'خبز فينو', category: 'مخبوزات', bought: true, addedBy: 'ياسمين', time: '09:00 ص' }
+        ];
+        const DEFAULT_MEALS = [
+            { id: 1, name: 'مكرونة بشاميل', votesAyman: true, votesYasmin: true, addedBy: 'ياسمين' },
+            { id: 2, name: 'ملوخية وفراخ محمرة', votesAyman: true, votesYasmin: false, addedBy: 'أيمن' },
+            { id: 3, name: 'سمك مشوي وأرز صيادية', votesAyman: false, votesYasmin: true, addedBy: 'ياسمين' },
+            { id: 4, name: 'كفتة مشوية وسلطة', votesAyman: true, votesYasmin: true, addedBy: 'أيمن' }
+        ];
+
+        /* FIREBASE: SEED + LIVE LISTENERS */
+        function setStatus(ok, text) {
+            const dot = document.getElementById('connDot');
+            const label = document.getElementById('connText');
+            if (!dot || !label) return;
+            dot.className = 'inline-block w-2 h-2 rounded-full animate-pulse ' + (ok ? 'bg-green-400' : 'bg-red-400');
+            label.innerText = text;
+        }
+
+        function dbError(err) {
+            console.error('Firebase error:', err);
+            setStatus(false, 'تعذر الاتصال بقاعدة البيانات');
+        }
+
+        // أول مرة فقط: لو القاعدة فاضية، ارفع البيانات الموجودة على الجهاز (أو البيانات الافتراضية)
+        async function seedIfEmpty() {
+            const snap = await get(R.seeded);
+            if (snap.exists()) return;
+
+            const fromLocal = (key, fallback) => {
+                try { return JSON.parse(localStorage.getItem(key)) || fallback; }
+                catch (e) { return fallback; }
+            };
+
+            const lib = fromLocal('hub_library', DEFAULT_LIBRARY);
+            const groceries = fromLocal('hub_groceries', DEFAULT_GROCERIES);
+            const meals = fromLocal('hub_meals', DEFAULT_MEALS);
+
+            const updates = { 'hub/meta/seeded': true };
+            lib.forEach(name => { updates[`hub/library/${push(R.library).key}`] = name; });
+            groceries.forEach(g => { updates[`hub/groceries/${g.id}`] = g; });
+            meals.forEach(m => { updates[`hub/meals/${m.id}`] = m; });
+
+            await update(ref(db), updates);
+        }
+
+        let seenNotifKeys = new Set();
+        let notifFirstLoad = true;
+
+        function startListeners() {
+            onValue(ref(db, '.info/connected'), snap => {
+                setStatus(snap.val() === true, snap.val() === true ? 'متصلين في نفس المكان' : 'غير متصل… بنحاول نرجع');
+            });
+
+            onValue(R.groceries, snap => {
+                groceryList = Object.values(snap.val() || {});
+                renderGroceries();
+            }, dbError);
+
+            onValue(R.meals, snap => {
+                mealList = Object.values(snap.val() || {}).sort((a, b) => b.id - a.id);
+                renderMeals();
+                drawWheel();
+            }, dbError);
+
+            onValue(R.library, snap => {
+                savedLibrary = Object.entries(snap.val() || {}).map(([key, name]) => ({ key, name }));
+                renderSavedLibrary();
+            }, dbError);
+
+            onValue(query(R.notifications, limitToLast(50)), snap => {
+                const entries = [];
+                snap.forEach(child => { entries.push({ key: child.key, ...child.val() }); });
+
+                entries.forEach(n => {
+                    if (!seenNotifKeys.has(n.key)) {
+                        seenNotifKeys.add(n.key);
+                        // إشعار المتصفح فقط لو الإشعار من الشخص التاني (مش أول تحميل)
+                        if (!notifFirstLoad && n.user !== currentUser) showNativeNotification(n.text);
+                    }
+                });
+                notifFirstLoad = false;
+
+                notificationsLog = entries.reverse(); // الأحدث في الأول
+                renderNotifications();
+            }, dbError);
+        }
+
+        function init() {
+            updateUserUI();
+            updateNotifyUI();
+            renderSavedLibrary();
+            renderGroceries();
+            renderMeals();
+            renderNotifications();
+            drawWheel();
+
+            if (notificationsEnabled && 'Notification' in window && Notification.permission !== 'granted') {
+                Notification.requestPermission();
+            }
+
+            startListeners();
+            seedIfEmpty().catch(dbError);
+        }
+
+        /* LOCAL PREFS (per device) */
+        function saveData() {
+            localStorage.setItem('hub_user', currentUser);
+            localStorage.setItem('hub_notify', notificationsEnabled);
+        }
+
+        /* USER SWITCHER LOGIC */
+        function switchUser(user) {
+            currentUser = user;
+            updateUserUI();
+            saveData();
+            triggerAudioTone(600, 0.05);
+        }
+
+        function updateUserUI() {
+            const btnA = document.getElementById('userBtnAyman');
+            const btnY = document.getElementById('userBtnYasmin');
+
+            if (currentUser === 'أيمن') {
+                btnA.className = "px-3 py-1 rounded-md transition flex items-center gap-1 bg-white text-talabat-primary shadow-sm font-bold";
+                btnY.className = "px-3 py-1 rounded-md transition flex items-center gap-1 text-white hover:bg-white/10 font-medium";
+            } else {
+                btnY.className = "px-3 py-1 rounded-md transition flex items-center gap-1 bg-white text-talabat-primary shadow-sm font-bold";
+                btnA.className = "px-3 py-1 rounded-md transition flex items-center gap-1 text-white hover:bg-white/10 font-medium";
+            }
+        }
+
+        /* TAB NAVIGATION LOGIC */
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(tabId).classList.remove('hidden');
+
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('text-talabat-primary');
+                btn.classList.add('text-gray-400');
+            });
+
+            const activeBtn = document.getElementById(
+                tabId === 'secGrocery' ? 'tabBtnGrocery' :
+                tabId === 'secMeals' ? 'tabBtnMeals' :
+                tabId === 'secWheel' ? 'tabBtnWheel' : 'tabBtnNotifications'
+            );
+
+            activeBtn.classList.remove('text-gray-400');
+            activeBtn.classList.add('text-talabat-primary');
+
+            if (tabId === 'secWheel') {
+                setTimeout(drawWheel, 100);
+            }
+        }
+
+        /* CATEGORY SELECTION IN FORM */
+        function selectCategory(cat) {
+            document.getElementById('selectedCat').value = cat;
+            document.querySelectorAll('.cat-pill').forEach(pill => {
+                if (pill.innerText.includes(cat)) {
+                    pill.className = "cat-pill bg-orange-100 text-talabat-primary border border-orange-200 px-2.5 py-1 rounded-full font-semibold whitespace-nowrap";
+                } else {
+                    pill.className = "cat-pill bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-semibold whitespace-nowrap";
+                }
+            });
+        }
+
+        /* GROCERY CORE LOGIC */
+        function handleAddGrocery(e) {
+            e.preventDefault();
+            const input = document.getElementById('groceryName');
+            const catInput = document.getElementById('selectedCat');
+            const name = input.value.trim();
+
+            if (!name) return;
+
+            addGroceryItem(name, catInput.value);
+            input.value = '';
+        }
+
+        function addGroceryItem(name, category = 'بقالة') {
+            // حفظ الاسم في المكتبة لو جديد
+            if (!savedLibrary.some(l => l.name === name)) {
+                push(R.library, name);
+            }
+
+            const id = Date.now();
+            set(ref(db, `hub/groceries/${id}`), {
+                id,
+                name,
+                category,
+                bought: false,
+                addedBy: currentUser,
+                time: nowTime()
+            }).catch(dbError);
+
+            pushNotification(`قام ${currentUser} بإضافة "${name}" لمشتريات البيت 🛒`);
+            triggerAudioTone(523.25, 0.1);
+        }
+
+        function addFromLibrary(index) {
+            const item = savedLibrary[index];
+            if (item) addGroceryItem(item.name);
+        }
+
+        function toggleBought(id) {
+            const item = groceryList.find(i => i.id === id);
+            if (!item) return;
+
+            const updated = !item.bought;
+            update(ref(db, `hub/groceries/${id}`), { bought: updated }).catch(dbError);
+
+            if (updated) {
+                pushNotification(`قام ${currentUser} بـ شراء "${item.name}" ✅`);
+            }
+            triggerAudioTone(updated ? 800 : 400, 0.08);
+        }
+
+        function deleteGrocery(id) {
+            remove(ref(db, `hub/groceries/${id}`)).catch(dbError);
+        }
+
+        /* RENDER SAVED LIBRARY BUTTONS */
+        function renderSavedLibrary() {
+            const container = document.getElementById('savedLibraryContainer');
+            document.getElementById('savedLibraryCount').innerText = `${savedLibrary.length} عنصر`;
+
+            container.innerHTML = savedLibrary.map((item, i) => `
+                <button onclick="addFromLibrary(${i})" class="bg-white hover:bg-orange-100 text-gray-700 hover:text-talabat-primary text-xs px-2.5 py-1 rounded-lg border border-orange-200 shadow-sm font-medium transition flex items-center gap-1">
+                    <span>+ ${esc(item.name)}</span>
+                </button>
+            `).join('');
+        }
+
+        /* RENDER GROCERY LIST WITH SMART SORTING */
+        function renderGroceries() {
+            const container = document.getElementById('groceryList');
+
+            // غير المكتمل دايمًا في الأعلى
+            const sortedList = [...groceryList].sort((a, b) => {
+                if (a.bought === b.bought) return b.id - a.id;
+                return a.bought ? 1 : -1;
+            });
+
+            const activeItems = groceryList.filter(i => !i.bought).length;
+            document.getElementById('activeCountBadge').innerText = activeItems;
+
+            if (sortedList.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
+                        <i class="fa-solid fa-basket-shopping text-3xl mb-2 text-orange-200"></i>
+                        <p class="text-xs">لا توجد طلبات حالياً في القائمة</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = sortedList.map(item => {
+                const isBought = item.bought;
+                return `
+                    <div class="p-3 bg-white rounded-2xl shadow-card border transition flex items-center justify-between ${isBought ? 'bg-gray-50 border-gray-200 opacity-60' : 'border-orange-100'}">
+                        <div class="flex items-center space-x-3 space-x-reverse flex-1">
+                            <button onclick="toggleBought(${item.id})" class="w-6 h-6 rounded-lg border-2 flex items-center justify-center transition ${isBought ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300 hover:border-talabat-primary'}">
+                                ${isBought ? '<i class="fa-solid fa-check text-xs"></i>' : ''}
+                            </button>
+
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-bold text-sm text-gray-800 ${isBought ? 'line-through text-gray-400' : ''}">${esc(item.name)}</span>
+                                    <span class="text-[10px] px-2 py-0.5 rounded-full ${isBought ? 'bg-gray-200 text-gray-500' : 'bg-orange-50 text-talabat-primary font-bold'}">${esc(item.category)}</span>
+                                </div>
+                                <div class="text-[10px] text-gray-400 mt-0.5 flex items-center gap-2">
+                                    <span>بواسطة: ${esc(item.addedBy)}</span>
+                                    <span>•</span>
+                                    <span>${esc(item.time)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button onclick="deleteGrocery(${item.id})" class="text-gray-300 hover:text-red-500 p-1.5 transition">
+                            <i class="fa-solid fa-trash-can text-sm"></i>
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        /* MEALS & VOTING LOGIC */
+        function handleAddMeal(e) {
+            e.preventDefault();
+            const input = document.getElementById('mealTitle');
+            const name = input.value.trim();
+            if (!name) return;
+
+            const id = Date.now();
+            set(ref(db, `hub/meals/${id}`), {
+                id,
+                name,
+                votesAyman: currentUser === 'أيمن',
+                votesYasmin: currentUser === 'ياسمين',
+                addedBy: currentUser
+            }).catch(dbError);
+
+            input.value = '';
+            pushNotification(`اقترح ${currentUser} وجبة جديدة: "${name}" 🍽️`);
+        }
+
+        function toggleVote(id, user) {
+            const meal = mealList.find(m => m.id === id);
+            if (!meal) return;
+
+            const patch = user === 'أيمن'
+                ? { votesAyman: !meal.votesAyman }
+                : { votesYasmin: !meal.votesYasmin };
+
+            update(ref(db, `hub/meals/${id}`), patch).catch(dbError);
+            triggerAudioTone(650, 0.08);
+        }
+
+        function deleteMeal(id) {
+            remove(ref(db, `hub/meals/${id}`)).catch(dbError);
+        }
+
+        function renderMeals() {
+            const container = document.getElementById('mealsContainer');
+            document.getElementById('totalMealsCount').innerText = `${mealList.length} وجبة`;
+
+            if (mealList.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
+                        <p class="text-xs">لا توجد وجبات في الجدول، قم بإضافة مقترحات!</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = mealList.map(meal => `
+                <div class="bg-white p-3.5 rounded-2xl shadow-card border border-gray-100 flex items-center justify-between">
+                    <div class="flex-1">
+                        <h4 class="font-bold text-gray-800 text-sm">${esc(meal.name)}</h4>
+                        <span class="text-[10px] text-gray-400">اقترحها: ${esc(meal.addedBy)}</span>
+                    </div>
+
+                    <div class="flex items-center space-x-2 space-x-reverse">
+                        <button onclick="toggleVote(${meal.id}, 'أيمن')" class="px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1 ${meal.votesAyman ? 'bg-blue-500 text-white shadow-sm' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}">
+                            👨‍💼 أيمن ${meal.votesAyman ? '👍' : ''}
+                        </button>
+                        <button onclick="toggleVote(${meal.id}, 'ياسمين')" class="px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1 ${meal.votesYasmin ? 'bg-pink-500 text-white shadow-sm' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}">
+                            👩‍🍳 ياسمين ${meal.votesYasmin ? '👍' : ''}
+                        </button>
+
+                        <button onclick="deleteMeal(${meal.id})" class="text-gray-300 hover:text-red-500 p-1 mr-1 transition">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        /* CANVAS DECISION WHEEL DRAWING & SPIN LOGIC */
+        let startAngle = 0;
+        let isSpinning = false;
+        const colors = ['#FF5A00', '#FF8A00', '#FFC107', '#4ADE80', '#60A5FA', '#F472B6', '#A78BFA'];
+
+        function drawWheel() {
+            const canvas = document.getElementById('wheelCanvas');
+            if (!canvas || !canvas.getContext) return;
+            const ctx = canvas.getContext('2d');
+            const numOptions = mealList.length;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (numOptions === 0) {
+                // Empty Wheel State
+                ctx.beginPath();
+                ctx.arc(150, 150, 140, 0, 2 * Math.PI);
+                ctx.fillStyle = '#F3F4F6';
+                ctx.fill();
+                ctx.fillStyle = '#9CA3AF';
+                ctx.font = 'bold 14px Cairo';
+                ctx.textAlign = 'center';
+                ctx.fillText('أضف وجبات في الجدول للتدوير', 150, 150);
+                return;
+            }
+
+            const arcSize = (2 * Math.PI) / numOptions;
+
+            for (let i = 0; i < numOptions; i++) {
+                const angle = startAngle + i * arcSize;
+                ctx.beginPath();
+                ctx.arc(150, 150, 140, angle, angle + arcSize);
+                ctx.lineTo(150, 150);
+                ctx.fillStyle = colors[i % colors.length];
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#FFFFFF';
+                ctx.stroke();
+
+                // Text styling inside wheel slices
+                ctx.save();
+                ctx.translate(150, 150);
+                ctx.rotate(angle + arcSize / 2);
+                ctx.textAlign = "right";
+                ctx.fillStyle = "#FFFFFF";
+                ctx.font = "bold 13px Cairo";
+                
+                // Truncate text if long
+                let text = mealList[i].name;
+                if (text.length > 12) text = text.substring(0, 10) + '..';
+                
+                ctx.fillText(text, 125, 5);
+                ctx.restore();
+            }
+
+            // Center Pin Circle
+            ctx.beginPath();
+            ctx.arc(150, 150, 25, 0, 2 * Math.PI);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fill();
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = '#FF5A00';
+            ctx.stroke();
+        }
+
+        function spinWheel() {
+            if (isSpinning) return;
+            if (mealList.length === 0) {
+                alert('الرجاء إضافة وجبات أولاً في قسم "جدول الوجبات"!');
+                return;
+            }
+
+            isSpinning = true;
+            document.getElementById('spinBtn').disabled = true;
+
+            const spinRounds = 5 + Math.random() * 5; // random rounds
+            const duration = 4000; // 4 seconds
+            const startTime = performance.now();
+            const initialAngle = startAngle;
+            const totalRotation = spinRounds * 2 * Math.PI;
+
+            function animate(time) {
+                const elapsed = time - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                
+                // Ease-out cubic formula for deceleration
+                const easeOut = 1 - Math.pow(1 - progress, 3);
+                
+                startAngle = initialAngle + easeOut * totalRotation;
+                drawWheel();
+
+                // Tick sound effect during rotation
+                if (Math.random() < 0.2) {
+                    triggerAudioTone(400, 0.03);
+                }
+
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    isSpinning = false;
+                    document.getElementById('spinBtn').disabled = false;
+                    determineWinner();
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        function determineWinner() {
+            const numOptions = mealList.length;
+            const arcSize = (2 * Math.PI) / numOptions;
+            
+            // Pointer is at 12 o'clock (270 degrees or 1.5 * PI)
+            let normalizedAngle = (3 * Math.PI / 2 - startAngle) % (2 * Math.PI);
+            if (normalizedAngle < 0) normalizedAngle += 2 * Math.PI;
+
+            const winningIndex = Math.floor(normalizedAngle / arcSize) % numOptions;
+            const winningMeal = mealList[winningIndex];
+
+            // Trigger Victory Audio & Modal
+            playFanfare();
+            triggerConfetti();
+
+            document.getElementById('winnerTitle').innerText = winningMeal.name;
+            document.getElementById('winnerModal').classList.remove('hidden');
+
+            pushNotification(`🎉 اختارت العجلة وجبة اليوم: "${winningMeal.name}"!`);
+        }
+
+        function closeWinnerModal() {
+            document.getElementById('winnerModal').classList.add('hidden');
+        }
+
+        /* SOUND SYNTHESIZER (NO EXTERNAL AUDIO FILES REQUIRED) */
+        function triggerAudioTone(freq, duration) {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, ctx.currentTime);
+                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + duration);
+            } catch(e) {}
+        }
+
+        function playFanfare() {
+            try {
+                const notes = [523.25, 659.25, 783.99, 1046.50];
+                notes.forEach((freq, idx) => {
+                    setTimeout(() => triggerAudioTone(freq, 0.2), idx * 120);
+                });
+            } catch(e) {}
+        }
+
+        /* CONFETTI ANIMATION */
+        function triggerConfetti() {
+            const canvas = document.getElementById('confetti-canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            const particles = Array.from({ length: 70 }).map(() => ({
+                x: Math.random() * canvas.width,
+                y: -10,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                size: Math.random() * 8 + 4,
+                vx: (Math.random() - 0.5) * 4,
+                vy: Math.random() * 5 + 3
+            }));
+
+            let frames = 0;
+            function render() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                particles.forEach(p => {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, 2 * Math.PI);
+                    ctx.fill();
+                });
+
+                if (frames++ < 120) requestAnimationFrame(render);
+                else ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+            render();
+        }
+
+        /* NOTIFICATION SYSTEM */
+        function toggleNotifications() {
+            if (!("Notification" in window)) {
+                alert("متصفحك لا يدعم الإشعارات الصوتية.");
+                return;
+            }
+
+            if (Notification.permission === "granted") {
+                notificationsEnabled = !notificationsEnabled;
+                updateNotifyUI();
+                saveData();
+            } else {
+                Notification.requestPermission().then(perm => {
+                    if (perm === "granted") {
+                        notificationsEnabled = true;
+                        updateNotifyUI();
+                        saveData();
+                    }
+                });
+            }
+        }
+
+        function updateNotifyUI() {
+            const btn = document.getElementById('notifyBtn');
+            const badge = document.getElementById('notifyBadge');
+
+            if (notificationsEnabled) {
+                btn.classList.add('bg-white', 'text-talabat-primary');
+                btn.classList.remove('bg-white/20', 'text-white');
+                badge.classList.remove('hidden');
+            } else {
+                btn.classList.remove('bg-white', 'text-talabat-primary');
+                btn.classList.add('bg-white/20', 'text-white');
+                badge.classList.add('hidden');
+            }
+        }
+
+        function pushNotification(text) {
+            push(R.notifications, { text, time: nowTime(), user: currentUser, ts: Date.now() }).catch(dbError);
+        }
+
+        function showNativeNotification(text) {
+            if (notificationsEnabled && "Notification" in window && Notification.permission === "granted") {
+                new Notification("بيت أيمن وياسمين 🏡", {
+                    body: text,
+                    icon: "https://cdn-icons-png.flaticon.com/512/3081/3081559.png"
+                });
+            }
+        }
+
+        function renderNotifications() {
+            const container = document.getElementById('notificationsList');
+            const dot = document.getElementById('navNotifyDot');
+
+            if (notificationsLog.length > 0) dot.classList.remove('hidden');
+            else dot.classList.add('hidden');
+
+            container.innerHTML = notificationsLog.map(n => `
+                <div class="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex items-start gap-3">
+                    <div class="w-8 h-8 rounded-full bg-orange-100 text-talabat-primary flex items-center justify-center font-bold text-xs shrink-0">
+                        ${n.user === 'أيمن' ? '👨‍💼' : '👩‍🍳'}
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-xs font-bold text-gray-800">${esc(n.text)}</p>
+                        <span class="text-[10px] text-gray-400 mt-1 block">${esc(n.time)}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function clearNotifications() {
+            remove(R.notifications).catch(dbError);
+        }
+
+        /* EXPOSE HANDLERS TO INLINE onclick/onsubmit (لأن السكريبت بقى module) */
+        Object.assign(window, {
+            toggleNotifications, switchUser, selectCategory, handleAddGrocery, addFromLibrary,
+            toggleBought, deleteGrocery, handleAddMeal, toggleVote, deleteMeal,
+            switchTab, spinWheel, closeWinnerModal, clearNotifications
+        });
+
+        init();
+    </script>
+</body>
+</html>
