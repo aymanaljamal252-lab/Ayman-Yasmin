@@ -247,6 +247,37 @@
                 </div>
             </section>
 
+            <!-- SECTION: RECIPES (وصفات أكل) -->
+            <section id="secRecipes" class="tab-content hidden space-y-4">
+
+                <div class="bg-white p-4 rounded-2xl shadow-card border border-orange-100">
+                    <h2 class="text-sm font-bold text-gray-800 mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-book-open text-talabat-primary"></i> حفظ وصفة جديدة
+                    </h2>
+                    <form id="recipeForm" onsubmit="handleAddRecipe(event)" class="space-y-2">
+                        <input type="text" id="recipeUrl" inputmode="url" placeholder="الصق رابط الفيديو (يوتيوب، إنستجرام، تيك توك...)" required
+                               class="w-full bg-gray-50 border border-gray-200 text-sm rounded-xl p-2.5 focus:outline-none focus:border-talabat-primary" dir="ltr">
+                        <input type="text" id="recipeTitle" placeholder="اسم الوصفة (اختياري)"
+                               class="w-full bg-gray-50 border border-gray-200 text-sm rounded-xl p-2.5 focus:outline-none focus:border-talabat-primary">
+                        <textarea id="recipeNotes" rows="2" placeholder="ملاحظات أو المكونات (اختياري)"
+                                  class="w-full bg-gray-50 border border-gray-200 text-sm rounded-xl p-2.5 focus:outline-none focus:border-talabat-primary resize-none"></textarea>
+                        <button type="submit" class="w-full bg-talabat-primary hover:bg-orange-600 text-white py-2.5 rounded-xl text-sm font-bold shadow-md transition">
+                            حفظ الوصفة
+                        </button>
+                    </form>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center">
+                        <h3 class="font-bold text-gray-800 text-sm">وصفاتنا المحفوظة</h3>
+                        <span class="text-xs text-orange-600 font-bold" id="recipesCount">0 وصفة</span>
+                    </div>
+                    <input type="search" id="recipeSearch" oninput="setRecipeFilter(this.value)" placeholder="ابحث في الوصفات..."
+                           class="w-full bg-white border border-gray-200 text-sm rounded-xl p-2.5 focus:outline-none focus:border-talabat-primary">
+                    <div id="recipesContainer" class="space-y-3"></div>
+                </div>
+            </section>
+
             <!-- SECTION 4: NOTIFICATIONS HISTORY (سجل التنبيهات) -->
             <section id="secNotifications" class="tab-content hidden space-y-3">
                 <div class="flex justify-between items-center mb-2">
@@ -286,6 +317,11 @@
             <button onclick="switchTab('secMeals')" id="tabBtnMeals" class="tab-btn flex-1 flex flex-col items-center py-1 text-gray-400 hover:text-talabat-primary font-bold transition">
                 <i class="fa-solid fa-utensils text-lg"></i>
                 <span class="text-[11px] mt-1">جدول الوجبات</span>
+            </button>
+            
+            <button onclick="switchTab('secRecipes')" id="tabBtnRecipes" class="tab-btn flex-1 flex flex-col items-center py-1 text-gray-400 hover:text-talabat-primary font-bold transition">
+                <i class="fa-solid fa-book-open text-lg"></i>
+                <span class="text-[11px] mt-1">وصفات</span>
             </button>
             
             <button onclick="switchTab('secWheel')" id="tabBtnWheel" class="tab-btn flex-1 flex flex-col items-center py-1 text-gray-400 hover:text-talabat-primary font-bold transition">
@@ -378,6 +414,7 @@
         let groceryList = fromLocal('hub_groceries', DEFAULT_GROCERIES);
         let mealList = fromLocal('hub_meals', DEFAULT_MEALS).sort((a, b) => b.id - a.id);
         let notificationsLog = fromLocal('hub_notifs', []);
+        let recipeList = fromLocal('hub_recipes', []);
 
         function persistLocal() {
             try {
@@ -385,6 +422,7 @@
                 localStorage.setItem('hub_groceries', JSON.stringify(groceryList));
                 localStorage.setItem('hub_meals', JSON.stringify(mealList));
                 localStorage.setItem('hub_notifs', JSON.stringify(notificationsLog));
+                localStorage.setItem('hub_recipes', JSON.stringify(recipeList));
             } catch (e) { /* storage ممتلئ أو ممنوع */ }
         }
 
@@ -497,6 +535,11 @@
                 drawWheel();
             }, dbError);
 
+            fb.onValue(fb.ref(db, 'hub/recipes'), snap => {
+                recipeList = Object.values(snap.val() || {});
+                renderRecipes();
+            }, dbError);
+
             fb.onValue(fb.ref(db, 'hub/library'), snap => {
                 savedLibrary = Object.entries(snap.val() || {}).map(([key, name]) => ({ key, name }));
                 renderSavedLibrary();
@@ -555,6 +598,7 @@
             renderSavedLibrary();
             renderGroceries();
             renderMeals();
+            renderRecipes();
             renderNotifications();
             drawWheel();
 
@@ -605,6 +649,7 @@
             const activeBtn = document.getElementById(
                 tabId === 'secGrocery' ? 'tabBtnGrocery' :
                 tabId === 'secMeals' ? 'tabBtnMeals' :
+                tabId === 'secRecipes' ? 'tabBtnRecipes' :
                 tabId === 'secWheel' ? 'tabBtnWheel' : 'tabBtnNotifications'
             );
 
@@ -832,6 +877,158 @@
                     </div>
                 </div>
             `).join('');
+        }
+
+        /* RECIPES (وصفات أكل): روابط فيديوهات الأكل المحفوظة */
+        let recipeFilter = '';
+
+        function normalizeRecipeUrl(raw) {
+            // لو اتنسخ نص من تطبيق (فيه كلام + لينك) ناخد أول لينك بس
+            const found = String(raw).match(/https?:\/\/[^\s]+/i);
+            let u = found ? found[0] : String(raw).trim();
+            if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+            try {
+                const x = new URL(u);
+                if (!/^https?:$/.test(x.protocol) || !x.hostname.includes('.')) return null;
+                return x.href;
+            } catch (e) { return null; }
+        }
+
+        function recipePlatform(url) {
+            let host = '';
+            try { host = new URL(url).hostname.replace(/^www\.|^m\./, ''); } catch (e) {}
+
+            if (/youtube\.com$|youtu\.be$/.test(host)) {
+                const m = url.match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/embed\/|\/live\/)([\w-]{11})/);
+                return {
+                    name: 'يوتيوب', icon: 'fa-brands fa-youtube', bg: 'bg-red-500',
+                    thumb: m ? `https://img.youtube.com/vi/${m[1]}/hqdefault.jpg` : ''
+                };
+            }
+            if (/instagram\.com$/.test(host)) return { name: 'إنستجرام', icon: 'fa-brands fa-instagram', bg: 'bg-gradient-to-br from-pink-500 to-purple-600', thumb: '' };
+            if (/tiktok\.com$/.test(host)) return { name: 'تيك توك', icon: 'fa-brands fa-tiktok', bg: 'bg-gray-800', thumb: '' };
+            if (/facebook\.com$|fb\.watch$/.test(host)) return { name: 'فيسبوك', icon: 'fa-brands fa-facebook', bg: 'bg-blue-600', thumb: '' };
+            return { name: 'رابط', icon: 'fa-solid fa-link', bg: 'bg-orange-400', thumb: '' };
+        }
+
+        function handleAddRecipe(e) {
+            e.preventDefault();
+            const urlInput = document.getElementById('recipeUrl');
+            const titleInput = document.getElementById('recipeTitle');
+            const notesInput = document.getElementById('recipeNotes');
+
+            const url = normalizeRecipeUrl(urlInput.value);
+            if (!url) {
+                showToast('الرابط مش صحيح، اتأكد إنك نسخته كامل.');
+                return;
+            }
+
+            const platform = recipePlatform(url);
+            const title = titleInput.value.trim() || `وصفة من ${platform.name}`;
+            const id = Date.now();
+            const recipe = { id, url, title, notes: notesInput.value.trim(), addedBy: currentUser, time: nowTime() };
+
+            recipeList.push(recipe);
+            renderRecipes();
+            dbSet(`hub/recipes/${id}`, recipe);
+
+            urlInput.value = '';
+            titleInput.value = '';
+            notesInput.value = '';
+            pushNotification(`قام ${currentUser} بحفظ وصفة جديدة: "${title}" 🍳`);
+            triggerAudioTone(523.25, 0.1);
+        }
+
+        function deleteRecipe(id) {
+            recipeList = recipeList.filter(r => r.id !== id);
+            renderRecipes();
+            dbRemove(`hub/recipes/${id}`);
+        }
+
+        function recipeToMeal(id) {
+            const recipe = recipeList.find(r => r.id === id);
+            if (!recipe) return;
+
+            if (mealList.some(m => m.name === recipe.title)) {
+                showToast('الوصفة دي موجودة قبل كده في جدول الوجبات.');
+                return;
+            }
+
+            const mealId = Date.now();
+            const meal = {
+                id: mealId,
+                name: recipe.title,
+                votesAyman: currentUser === 'أيمن',
+                votesYasmin: currentUser === 'ياسمين',
+                addedBy: currentUser
+            };
+            mealList.unshift(meal);
+            renderMeals();
+            drawWheel();
+            dbSet(`hub/meals/${mealId}`, meal);
+
+            pushNotification(`اقترح ${currentUser} وجبة جديدة: "${recipe.title}" 🍽️`);
+            showToast('اتضافت لجدول الوجبات للتصويت ✅');
+        }
+
+        function setRecipeFilter(value) {
+            recipeFilter = value;
+            renderRecipes();
+        }
+
+        function renderRecipes() {
+            persistLocal();
+            const container = document.getElementById('recipesContainer');
+            document.getElementById('recipesCount').innerText = `${recipeList.length} وصفة`;
+
+            const q = recipeFilter.trim().toLowerCase();
+            const list = recipeList
+                .filter(r => !q || `${r.title} ${r.notes || ''}`.toLowerCase().includes(q))
+                .sort((a, b) => b.id - a.id);
+
+            if (list.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
+                        <i class="fa-solid fa-book-open text-3xl mb-2 text-orange-200"></i>
+                        <p class="text-xs">${recipeList.length === 0 ? 'لسه مفيش وصفات محفوظة، الصق رابط أول فيديو!' : 'مفيش وصفات مطابقة للبحث'}</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = list.map(r => {
+                const p = recipePlatform(r.url);
+                return `
+                    <div class="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+                        <a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer" class="block relative h-32 ${p.bg} flex items-center justify-center overflow-hidden">
+                            <i class="${p.icon} text-white/80 text-4xl"></i>
+                            ${p.thumb ? `<img src="${p.thumb}" alt="" loading="lazy" onerror="this.style.display='none'" class="absolute inset-0 w-full h-full object-cover">` : ''}
+                            <span class="absolute w-11 h-11 rounded-full bg-black/50 text-white flex items-center justify-center">
+                                <i class="fa-solid fa-play text-sm"></i>
+                            </span>
+                        </a>
+                        <div class="p-3 space-y-1.5">
+                            <div class="flex items-start justify-between gap-2">
+                                <h4 class="font-bold text-gray-800 text-sm flex-1">${esc(r.title)}</h4>
+                                <span class="text-[10px] px-2 py-0.5 rounded-full bg-orange-50 text-talabat-primary font-bold shrink-0">${p.name}</span>
+                            </div>
+                            ${r.notes ? `<p class="text-xs text-gray-500 whitespace-pre-line">${esc(r.notes)}</p>` : ''}
+                            <div class="text-[10px] text-gray-400">حفظها: ${esc(r.addedBy)} • ${esc(r.time)}</div>
+                            <div class="flex items-center gap-2 pt-1">
+                                <a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer" class="flex-1 text-center bg-talabat-primary text-white text-xs font-bold py-2 rounded-xl">
+                                    <i class="fa-solid fa-play ml-1"></i> شاهد الفيديو
+                                </a>
+                                <button onclick="recipeToMeal(${r.id})" class="flex-1 bg-orange-50 text-talabat-primary text-xs font-bold py-2 rounded-xl border border-orange-200">
+                                    <i class="fa-solid fa-utensils ml-1"></i> اقترحها كوجبة
+                                </button>
+                                <button onclick="deleteRecipe(${r.id})" class="text-gray-300 hover:text-red-500 p-2 transition">
+                                    <i class="fa-solid fa-trash-can text-sm"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
 
         /* CANVAS DECISION WHEEL DRAWING & SPIN LOGIC */
@@ -1112,7 +1309,8 @@
         Object.assign(window, {
             toggleNotifications, switchUser, selectCategory, handleAddGrocery, addFromLibrary,
             toggleBought, deleteGrocery, handleAddMeal, toggleVote, deleteMeal,
-            switchTab, spinWheel, closeWinnerModal, clearNotifications
+            switchTab, spinWheel, closeWinnerModal, clearNotifications,
+            handleAddRecipe, deleteRecipe, recipeToMeal, setRecipeFilter
         });
 
         init();
