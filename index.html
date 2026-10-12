@@ -255,13 +255,14 @@
                         <i class="fa-solid fa-book-open text-talabat-primary"></i> حفظ وصفة جديدة
                     </h2>
                     <form id="recipeForm" onsubmit="handleAddRecipe(event)" class="space-y-2">
-                        <input type="text" id="recipeUrl" inputmode="url" placeholder="الصق رابط الفيديو (يوتيوب، إنستجرام، تيك توك...)" required
+                        <input type="text" id="recipeUrl" inputmode="url" oninput="onRecipeUrlInput()" placeholder="الصق رابط الفيديو (يوتيوب، إنستجرام، تيك توك...)" required
                                class="w-full bg-gray-50 border border-gray-200 text-sm rounded-xl p-2.5 focus:outline-none focus:border-talabat-primary" dir="ltr">
-                        <input type="text" id="recipeTitle" placeholder="اسم الوصفة (اختياري)"
+                        <input type="text" id="recipeTitle" oninput="this.dataset.auto='0'" placeholder="اسم الوصفة (بيتكتب تلقائي من الفيديو)"
                                class="w-full bg-gray-50 border border-gray-200 text-sm rounded-xl p-2.5 focus:outline-none focus:border-talabat-primary">
+                        <p id="recipeTitleHint" class="text-[11px] text-gray-400 hidden"></p>
                         <textarea id="recipeNotes" rows="2" placeholder="ملاحظات أو المكونات (اختياري)"
                                   class="w-full bg-gray-50 border border-gray-200 text-sm rounded-xl p-2.5 focus:outline-none focus:border-talabat-primary resize-none"></textarea>
-                        <button type="submit" class="w-full bg-talabat-primary hover:bg-orange-600 text-white py-2.5 rounded-xl text-sm font-bold shadow-md transition">
+                        <button type="submit" id="recipeSubmitBtn" class="w-full bg-talabat-primary hover:bg-orange-600 text-white py-2.5 rounded-xl text-sm font-bold shadow-md transition disabled:opacity-60">
                             حفظ الوصفة
                         </button>
                     </form>
@@ -911,11 +912,92 @@
             return { name: 'رابط', icon: 'fa-solid fa-link', bg: 'bg-orange-400', thumb: '' };
         }
 
-        function handleAddRecipe(e) {
+        /* جلب اسم الفيديو تلقائيًا (oEmbed). لو فشل (حجب/CORS/إنستجرام) بنرجع للاسم الافتراضي */
+        const recipeTitleCache = new Map();
+
+        async function fetchJson(url, ms = 6000) {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), ms);
+            try {
+                const res = await fetch(url, { signal: ctrl.signal });
+                if (!res.ok) return null;
+                return await res.json();
+            } catch (e) {
+                return null;
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        function cleanTitle(t) {
+            const c = String(t || '').replace(/\s+/g, ' ').trim();
+            return c.length > 90 ? c.slice(0, 87) + '…' : c;
+        }
+
+        async function fetchRecipeTitle(url) {
+            if (recipeTitleCache.has(url)) return recipeTitleCache.get(url);
+
+            const enc = encodeURIComponent(url);
+            const p = recipePlatform(url);
+            const endpoints = [];
+            if (p.name === 'يوتيوب') endpoints.push(`https://www.youtube.com/oembed?url=${enc}&format=json`);
+            if (p.name === 'تيك توك') endpoints.push(`https://www.tiktok.com/oembed?url=${enc}`);
+            endpoints.push(`https://noembed.com/embed?url=${enc}`); // احتياطي لمواقع تانية
+
+            let title = '';
+            for (const ep of endpoints) {
+                const data = await fetchJson(ep);
+                if (data && !data.error && data.title) { title = cleanTitle(data.title); if (title) break; }
+            }
+
+            if (title) recipeTitleCache.set(url, title);
+            return title || null;
+        }
+
+        let recipeUrlTimer = null;
+        function onRecipeUrlInput() {
+            clearTimeout(recipeUrlTimer);
+            recipeUrlTimer = setTimeout(autofillRecipeTitle, 500);
+        }
+
+        async function autofillRecipeTitle() {
+            const urlInput = document.getElementById('recipeUrl');
+            const titleInput = document.getElementById('recipeTitle');
+            const hint = document.getElementById('recipeTitleHint');
+
+            const url = normalizeRecipeUrl(urlInput.value);
+            if (!urlInput.value.trim() || !url) { hint.classList.add('hidden'); return; }
+
+            // ما نكتبش فوق اسم المستخدم كتبه بنفسه
+            const canFill = () => !titleInput.value.trim() || titleInput.dataset.auto === '1';
+            if (!canFill()) return;
+
+            hint.innerText = 'جاري جلب اسم الفيديو…';
+            hint.classList.remove('hidden');
+
+            const title = await fetchRecipeTitle(url);
+
+            // لو الرابط اتغير أثناء الجلب، تجاهل النتيجة دي
+            if (normalizeRecipeUrl(urlInput.value) !== url) return;
+
+            if (title && canFill()) {
+                titleInput.value = title;
+                titleInput.dataset.auto = '1';
+                hint.classList.add('hidden');
+            } else if (!title) {
+                hint.innerText = 'مقدرتش أجيب الاسم تلقائي، اكتبه بنفسك.';
+            } else {
+                hint.classList.add('hidden');
+            }
+        }
+
+        async function handleAddRecipe(e) {
             e.preventDefault();
             const urlInput = document.getElementById('recipeUrl');
             const titleInput = document.getElementById('recipeTitle');
             const notesInput = document.getElementById('recipeNotes');
+            const hint = document.getElementById('recipeTitleHint');
+            const btn = document.getElementById('recipeSubmitBtn');
 
             const url = normalizeRecipeUrl(urlInput.value);
             if (!url) {
@@ -924,7 +1006,18 @@
             }
 
             const platform = recipePlatform(url);
-            const title = titleInput.value.trim() || `وصفة من ${platform.name}`;
+            let title = titleInput.value.trim();
+
+            if (!title) {
+                // الخانة فاضية: نحاول نجيب الاسم من الفيديو قبل الحفظ
+                btn.disabled = true;
+                btn.innerText = 'جاري جلب اسم الفيديو…';
+                title = (await fetchRecipeTitle(url)) || '';
+                btn.disabled = false;
+                btn.innerText = 'حفظ الوصفة';
+            }
+            title = title || `وصفة من ${platform.name}`;
+
             const id = Date.now();
             const recipe = { id, url, title, notes: notesInput.value.trim(), addedBy: currentUser, time: nowTime() };
 
@@ -934,7 +1027,9 @@
 
             urlInput.value = '';
             titleInput.value = '';
+            titleInput.dataset.auto = '0';
             notesInput.value = '';
+            hint.classList.add('hidden');
             pushNotification(`قام ${currentUser} بحفظ وصفة جديدة: "${title}" 🍳`);
             triggerAudioTone(523.25, 0.1);
         }
@@ -1310,7 +1405,7 @@
             toggleNotifications, switchUser, selectCategory, handleAddGrocery, addFromLibrary,
             toggleBought, deleteGrocery, handleAddMeal, toggleVote, deleteMeal,
             switchTab, spinWheel, closeWinnerModal, clearNotifications,
-            handleAddRecipe, deleteRecipe, recipeToMeal, setRecipeFilter
+            handleAddRecipe, deleteRecipe, recipeToMeal, setRecipeFilter, onRecipeUrlInput
         });
 
         init();
